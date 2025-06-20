@@ -1,0 +1,143 @@
+#!/usr/bin/env python3
+
+import subprocess
+from pathlib import Path
+import shutil
+import textwrap
+
+# Base directory containing .xyz geometry files on the HPC
+
+ggeom_dir = Path("/gpfs1/home/m/o/momoniyi/CANDID/QROs/N3")
+# Base output directory for ORCA runs
+out_dir = ggeom_dir / "orca_runs"
+out_dir.mkdir(exist_ok=True)
+
+# Directory to collect all .qro files generated
+qro_dir = out_dir / "qro_files"
+qro_dir.mkdir(exist_ok=True)
+
+# ORCA executable path
+ORCA_CMD = "/gpfs1/sw/rh9/pkgs/orca/6.0.1/orca"
+
+# Toggle SLURM submission: True to generate and submit sbatch scripts
+USE_SLURM = True
+
+# Constants for charge and multiplicity
+CHARGE = 0
+MULTIPLICITY = 2
+
+# SLURM script template customized to your HPC settings
+SBATCH_TEMPLATE = textwrap.dedent("""\
+#!/bin/bash
+#SBATCH --job-name={idx}N3          # Job name
+#SBATCH --partition=short         # Partition to use
+#SBATCH --nodes=1                   # Number of nodes
+#SBATCH --ntasks=45                 # Total ORCA tasks (NPROCS)
+#SBATCH --cpus-per-task=1           # CPUs per ORCA task
+#SBATCH --mem=700gb                 # Memory per node
+#SBATCH --time=03:00:00             # Time limit (30 hr)
+#SBATCH --mail-type=ALL             # Email on all events
+#SBATCH --mail-user=momoniyi@uvm.edu
+
+# Purge and load modules
+module purge
+module load gcc/13.3.0 openmpi/5.0.5 orca/6.0.1
+
+# Execute ORCA
+{orca_cmd} {inp_name} > {idx}N3.out
+
+# Move generated .qro files to central directory
+mv *.qro {qro_dir}
+""")
+
+# ORCA input template with single-line xyzfile directive
+INPUT_TEMPLATE = textwrap.dedent("""\
+! UKS BLYP TZVP RIJCOSX TightSCF
+
+%MaxCore 700000
+
+%scf
+  MaxIter 500
+  UHFNO true
+end
+
+%pal
+  nprocs 45
+end
+
+%output
+  Print[ P_Loewdin ] 1
+  Print[ P_ReducedOrbPopMO_L] 1
+  Print[ P_UNO_ReducedOrbPopMO_L] 1
+end
+
+%plots
+  Format gOpenMol_bin
+  dim1 50
+  dim2 50
+  dim3 50
+  SpinDens("HemeN3.spin.plt");
+end
+
+* xyzfile {charge} {mult} {geom_name}
+""")
+
+def main():
+    # Loop over index range 129–174
+    for idx in range(129, 175):
+        geom_name = f"{idx}N3.xyz"
+        geom_src = ggeom_dir / geom_name
+        if not geom_src.exists():
+            print(f"Geometry file not found: {geom_src}")
+            continue
+
+        # Create job-specific directory
+        job_dir = out_dir / f"{idx}N3"
+        job_dir.mkdir(exist_ok=True)
+
+        # Copy geometry file into job directory
+        shutil.copy(geom_src, job_dir / geom_name)
+
+        # Write ORCA input file with relative geometry filename
+        inp_name = f"{idx}N3.inp"
+        inp_path = job_dir / inp_name
+        with inp_path.open('w') as inp_file:
+            inp_file.write(
+                INPUT_TEMPLATE.format(
+                    charge=CHARGE,
+                    mult=MULTIPLICITY,
+                    geom_name=geom_name
+                )
+            )
+
+        if USE_SLURM:
+            # Create SLURM submission script
+            sbatch_path = job_dir / "run.sh"
+            with sbatch_path.open('w') as sbatch_file:
+                sbatch_file.write(
+                    SBATCH_TEMPLATE.format(
+                        idx=idx,
+                        inp_name=inp_name,
+                        orca_cmd=ORCA_CMD,
+                        qro_dir=str(qro_dir)
+                    )
+                )
+            # Submit job
+            subprocess.run(["sbatch", str(sbatch_path)], cwd=job_dir)
+        else:
+            # Run ORCA directly
+            log_path = job_dir / f"{idx}N3.out"
+            with log_path.open('w') as log_file:
+                subprocess.run(
+                    [ORCA_CMD, str(inp_path)],
+                    cwd=job_dir,
+                    stdout=log_file,
+                    check=True
+                )
+            # Move .qro files to central dir
+            for qro_file in job_dir.glob("*.qro"):
+                qro_file.replace(qro_dir / qro_file.name)
+
+
+if __name__ == "__main__":
+    main()

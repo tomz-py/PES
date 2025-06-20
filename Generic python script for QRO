@@ -1,0 +1,29 @@
+! UKS BLYP TZVP RIJCOSX TightSCF
+
+%MaxCore 700000
+
+%scf
+  MaxIter 500
+  UHFNO true
+  end
+
+%pal
+  nprocs 45
+
+end
+
+%output
+  Print[ P_Loewdin ] 1
+  Print[ P_ReducedOrbPopMO_L] 1
+  Print[ P_UNO_ReducedOrbPopMO_L] 1
+  end
+
+%plots
+  Format gOpenMol_bin
+  dim1 50
+  dim2 50
+  dim3 50
+  SpinDens("HemeCN.spin.plt");
+  end
+
+* xyzfile 0 2  129CN.xyz

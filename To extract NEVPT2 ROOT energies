@@ -1,0 +1,71 @@
+#!/usr/bin/env python3
+import os
+import re
+import pandas as pd
+
+# ─── 1. CONFIGURE YOUR FOLDER ───────────────────────────────────────────────────
+results_dir   = r"C:\Users\momon\Downloads\ADV_CANDID\workk\new_work\VACC\N3\cas98\nevpt298"
+output_csv    = os.path.join(results_dir, "nevpt2_root_energies.csv")
+fallback_csv  = os.path.join(os.path.expanduser("~"), "Desktop", "nevpt2_root_energies.csv")
+
+# ─── 2. REGEX FOR “STATE   ROOT   MULT   Energy/a.u.” LINES ────────────────────
+energy_pattern = re.compile(
+    r"^\s*\d+:\s+(\d+)\s+\d+\s+(-\d+\.\d+)",
+    re.MULTILINE
+)
+
+# ─── 3. COLLECT SPECIFIC FILE IDENTIFIERS ───────────────────────────────────────
+file_ids = [
+    "0_40","0_47","0_54","0_61","0_68","0_75","0_82","0_88","0_94",
+    "1_05","1_11","1_18","1_23","1_29","1_34","1_40","1_46","1_51",
+    "1_56","1_62","1_66","1_71","1_76","1_81","1_85","1_90","1_94",
+    "1_99","2_03","2_07","2_11","2_15","2_19","2_23","2_27","2_30"
+]
+
+file_list = []
+for fid in file_ids:
+    fname = f"{fid}.out"
+    path  = os.path.join(results_dir, fname)
+    if os.path.isfile(path):
+        file_list.append((fid, fname))
+
+if not file_list:
+    raise FileNotFoundError(f"No matching .out files found in {results_dir}")
+
+# ─── 4. EXTRACT ROOT ENERGIES ──────────────────────────────────────────────────
+records = []
+for fid, fname in file_list:
+    entry = {
+        "File": fname,
+        "Identifier": fid,
+        "NEVPT2 ROOT 0": None,
+        "NEVPT2 ROOT 1": None,
+        "NEVPT2 ROOT 2": None
+    }
+    lines = open(os.path.join(results_dir, fname), "r", errors="ignore").read().splitlines()
+    inside = False
+    for idx, line in enumerate(lines):
+        if "NEVPT2 TOTAL ENERGIES" in line:
+            inside = True
+            continue
+        if inside and re.search(r"STATE\s+ROOT\s+MULT\s+Energy/a\.u\.", line):
+            for offset in (1, 2, 3):
+                if idx + offset < len(lines):
+                    m = energy_pattern.match(lines[idx + offset])
+                    if m:
+                        root, e = m.groups()
+                        entry[f"NEVPT2 ROOT {root}"] = float(e)
+            break
+    records.append(entry)
+
+# ─── 5. WRITE TO CSV WITH FALLBACK ──────────────────────────────────────────────
+df = pd.DataFrame(records)
+try:
+    df.to_csv(output_csv, index=False)
+    print(f"✅ Written {len(records)} records → {output_csv}")
+except PermissionError:
+    df.to_csv(fallback_csv, index=False)
+    print(
+        f"⚠️  Permission denied writing to\n   {output_csv}"
+        f"\n   Wrote instead to\n   {fallback_csv}"
+    )

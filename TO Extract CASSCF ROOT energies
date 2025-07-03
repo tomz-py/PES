@@ -1,0 +1,46 @@
+#!/usr/bin/env python3
+
+import os
+import re
+import pandas as pd
+
+# Directory containing your .out files
+results_dir = r"C:\Users\momon\Downloads\ADV_CANDID\workk\new_work\VACC\N3\CAS98"
+# Create the directory if it does not exist
+os.makedirs(results_dir, exist_ok=True)
+
+# Path to the CSV file where energies will be saved
+output_csv = os.path.join(results_dir, "casscf_root_energies.csv")
+
+# Regex to match lines like "ROOT   0:  E=   -75.123456 Eh"
+root_energy_pattern = re.compile(r"ROOT\s+(\d+):\s+E=\s+(-?\d+\.\d+)\s+Eh")
+
+data = []
+
+# List of your file identifiers
+file_ids = [
+    "0_40", "0_47", "0_54", "0_61", "0_68", "0_75", "0_82", "0_88", "0_94",
+    "1_05", "1_11", "1_18", "1_23", "1_29", "1_34", "1_40", "1_46", "1_51",
+    "1_56", "1_62", "1_66", "1_71", "1_76", "1_81", "1_85", "1_90", "1_94",
+    "1_99", "2_03", "2_07", "2_11", "2_15", "2_19", "2_23", "2_27", "2_30"
+]
+
+for fid in file_ids:
+    file_name = f"{fid}.out"
+    file_path = os.path.join(results_dir, file_name)
+    entry = {"File": file_name, "ROOT 0": None, "ROOT 1": None, "ROOT 2": None}
+
+    if os.path.isfile(file_path):
+        with open(file_path, "r", encoding="utf-8", errors="ignore") as f:
+            content = f.read()
+        for root_idx, energy in root_energy_pattern.findall(content):
+            key = f"ROOT {root_idx}"
+            if key in entry:
+                entry[key] = float(energy)
+
+    data.append(entry)
+
+# Save to CSV
+df = pd.DataFrame(data)
+df.to_csv(output_csv, index=False)
+print(f"Extraction complete: {output_csv}")

@@ -1,0 +1,106 @@
+#!/usr/bin/env python3
+import os
+import re
+import argparse
+import pandas as pd
+
+def extract_coeffs(text):
+    """
+    Return dict {0: %, 1: %, 2: %} for the first '22221000' coefficient in each ROOT.
+    """
+    coeffs = {0: 0.0, 1: 0.0, 2: 0.0}
+    lines = text.splitlines()
+
+    # locate CAS-SCF block
+    start = None
+    for i, L in enumerate(lines):
+        if ("CAS-SCF STATES FOR BLOCK" in L
+            and re.search(r"MULT\s*=\s*2", L)
+            and re.search(r"NROOTS\s*=\s*3", L)):
+            start = i + 1
+            break
+    if start is None:
+        return coeffs
+
+    current = None
+    for L in lines[start:]:
+        s = L.strip()
+        if "CAS-SCF STATES FOR BLOCK" in L:
+            break
+        if not s or set(s) <= {"-"}:
+            continue
+
+        m = re.match(r"\s*ROOT\s+([012])\s*:", L)
+        if m:
+            current = int(m.group(1))
+            continue
+        if current is None:
+            continue
+
+        if "22221000" in L:
+            m2 = re.search(r"([\d]+\.\d+)", L)
+            if m2:
+                coeffs[current] = float(m2.group(1)) * 100.0
+            current = None
+            if all(v > 0.0 for v in coeffs.values()):
+                break
+
+    return coeffs
+
+def classify(pct):
+    """
+    • pct > 50%       → "2B2g"
+    • 25% ≤ pct ≤ 50% → "2Eg+2B2g"
+    • pct < 25%       → "2Eg"
+    """
+    if pct > 50.0:
+        return "2B2g"
+    if pct < 25.0:
+        return "2Eg"
+    return "2Eg+2B2g"
+
+def main():
+    DEFAULT_INDIR  = r"C:\Users\momon\Downloads\ADV_CANDID\workk\new_work\VACC\N3\cas98\nevpt298"
+    DEFAULT_OUTCSV = r"C:\Users\momon\Downloads\ADV_CANDID\workk\new_work\VACC\N3\cas98\nevpt298\casscf_weights.csv"
+
+    parser = argparse.ArgumentParser(
+        description="Extract 22221000 weights from ORCA .out files"
+    )
+    parser.add_argument(
+        "-i", "--indir",
+        default=DEFAULT_INDIR,
+        help="directory containing your .out files"
+    )
+    parser.add_argument(
+        "-o", "--outcsv",
+        default=DEFAULT_OUTCSV,
+        help="path to output CSV"
+    )
+    args = parser.parse_args()
+
+    records = []
+    for fname in sorted(os.listdir(args.indir)):
+        if not fname.endswith(".out"):
+            continue
+
+        full = os.path.join(args.indir, fname)
+        text = open(full, "r", errors="ignore").read()
+        coeffs = extract_coeffs(text)
+
+        if all(v == 0.0 for v in coeffs.values()):
+            print(f"WARNING: no 22221000 found in {fname}")
+
+        for root, pct in coeffs.items():
+            records.append({
+                "filename": fname,
+                "root": root,
+                "percent_22221000": pct,
+                "label": classify(pct)
+            })
+
+    df = pd.DataFrame(records).sort_values(["filename", "root"])
+    df.to_csv(args.outcsv, index=False)
+    print(f"Wrote {len(df)} rows to {args.outcsv}")
+
+if __name__ == "__main__":
+    main()

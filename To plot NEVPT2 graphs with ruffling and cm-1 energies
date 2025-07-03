@@ -1,0 +1,103 @@
+#!/usr/bin/env python3
+import os
+import argparse
+import pandas as pd
+import matplotlib.pyplot as plt
+
+HARTREE_TO_CM1 = 219474.6313705
+
+def load_data(indir):
+    wfile = os.path.join(indir, "casscf_weights.csv")
+    efile = os.path.join(indir, "nevpt2_root_energies.csv")
+    df_w = pd.read_csv(wfile)
+    df_e = pd.read_csv(efile)
+    return df_w, df_e
+
+def melt_energies(df_e):
+    df = df_e.rename(columns={"File": "filename"})
+    long = df.melt(
+        id_vars=["filename"],
+        value_vars=[c for c in df.columns if c.startswith("NEVPT2 ROOT")],
+        var_name="root_col",
+        value_name="energy_hartree"
+    )
+    long["root"] = long["root_col"].str.split().str[-1].astype(int)
+    return long[["filename", "root", "energy_hartree"]]
+
+def normalize(df):
+    df["energy_cm1"] = df["energy_hartree"] * HARTREE_TO_CM1
+    emin = df["energy_cm1"].min()
+    df["rel_energy_cm1"] = df["energy_cm1"] - emin
+    return df
+
+def remove_outliers(df, col="rel_energy_cm1"):
+    q1 = df[col].quantile(0.25)
+    q3 = df[col].quantile(0.75)
+    iqr = q3 - q1
+    lower, upper = q1 - 1.5*iqr, q3 + 1.5*iqr
+    return df[(df[col] >= lower) & (df[col] <= upper)]
+
+def plot_scatter(df, out_png):
+    plt.figure(dpi=150)
+
+    style = {
+        "2Eg":       {"marker":"s", "color":"red",    "s":10, "label_text": r"$^2E_g$"},
+        "2B2g":      {"marker":"o", "color":"blue",   "s":10, "label_text": r"$^2B_{2g}$"},
+        "2Eg+2B2g":  {"marker":"^", "color":"purple","s":10, "label_text": r"$^2E_g + ^2B_{2g}$"},
+    }
+
+    for label, grp in df.groupby("label"):
+        props = style.get(label, {
+            "marker":"^","color":"gray","s":10, "label_text": label
+        })
+        plt.scatter(
+            grp["file_id"],
+            grp["rel_energy_cm1"],
+            marker=props["marker"],
+            color=props["color"],
+            s=props["s"],
+            label=props["label_text"]
+        )
+
+    plt.xlabel("Degree of ruffling ($b_{1u}$)", fontsize=8)
+    plt.ylabel("State energy (cm$^{-1}$)", fontsize=8)
+    plt.xticks(fontsize=6)
+    plt.yticks(fontsize=6)
+    plt.legend(fontsize=6)  # Removed legend title
+    plt.tight_layout()
+    plt.savefig(out_png)
+    print(f"Saved plot to {out_png}")
+    plt.show()
+
+def main():
+    p = argparse.ArgumentParser(
+        description="Plot degree of ruffling vs. state energy"
+    )
+    p.add_argument(
+        "-d", "--dir",
+        default=r"C:\Users\momon\Downloads\ADV_CANDID\workk\new_work\VACC\N3\cas98\nevpt298",
+        help="Directory with casscf_weights.csv & nevpt2_root_energies.csv"
+    )
+    p.add_argument(
+        "-o", "--outpng",
+        default="ruffling_vs_energy.png",
+        help="Output plot filename"
+    )
+    args = p.parse_args()
+
+    df_w, df_e = load_data(args.dir)
+    df_e_long = melt_energies(df_e)
+    df = pd.merge(df_w, df_e_long, on=["filename", "root"])
+    df = normalize(df)
+    df = remove_outliers(df)
+    df["file_id"] = (
+        df["filename"]
+          .str.replace(r"\.out$", "", regex=True)
+          .str.replace("_", ".", regex=False)
+          .astype(float)
+    )
+
+    plot_scatter(df, args.outpng)
+
+if __name__ == "__main__":
+    main()

@@ -1,0 +1,82 @@
+## Pyhton orca script with email notification 
+# make it excuetable: chmod +x run_orca.py
+##run with this: nohup ./run_orca.py > monitor.log 2>&1 &
+
+
+
+#!/usr/bin/env python3
+import smtplib
+import subprocess
+import time
+from email.mime.text import MIMEText
+from pathlib import Path
+
+# ========== CONFIGURATION ==========
+WORKDIR = Path.cwd()
+ORCA_PATH = str(Path.home() / "bin/orca/orca")
+INPUT_FILE = WORKDIR / "TFeO.inp"
+OUTPUT_FILE = WORKDIR / "TFeO.out"
+CHECK_INTERVAL = 60          # seconds between checks
+PROGRESS_INTERVAL = 3600     # send progress email every hour
+
+# Gmail settings (using App Password)
+SMTP_SERVER = "smtp.gmail.com"
+SMTP_PORT = 587
+SENDER = "omoniyimodupe@gmail.com"
+PASSWORD = "vxrs ccko drho pxef"   # your 16-digit Google App Password
+RECIPIENT = "Modupe.Omoniyi@uvm.edu"
+
+# ========== FUNCTIONS ==========
+def send_email(subject, body):
+    """Send email using Gmail SMTP with App Password."""
+    msg = MIMEText(body)
+    msg["From"] = SENDER
+    msg["To"] = RECIPIENT
+    msg["Subject"] = subject
+
+    try:
+        with smtplib.SMTP(SMTP_SERVER, SMTP_PORT) as server:
+            server.starttls()
+            server.login(SENDER, PASSWORD)
+            server.sendmail(SENDER, RECIPIENT, msg.as_string())
+        print(f"[INFO] Email sent: {subject}")
+    except Exception as e:
+        print(f"[ERROR] Failed to send email: {e}")
+
+def send_progress():
+    """Send last 15 lines of output file as progress update."""
+    try:
+        with open(OUTPUT_FILE, "r") as f:
+            lines = f.readlines()[-15:]
+        send_email("ORCA Progress Update", "".join(lines))
+    except Exception as e:
+        print(f"[WARN] Could not read progress: {e}")
+
+def main():
+    send_email("ORCA Job Started", f"Started ORCA calculation: {INPUT_FILE.name}")
+
+    # Launch ORCA with stdout redirected to TFeO.out
+    with open(OUTPUT_FILE, "w") as out:
+        proc = subprocess.Popen([ORCA_PATH, str(INPUT_FILE)],
+                                cwd=WORKDIR, stdout=out, stderr=out)
+
+    counter = 0
+    while True:
+        retcode = proc.poll()
+        if retcode is not None:  # Job ended
+            if retcode == 0:
+                send_email("ORCA Job Completed",
+                           f"Calculation {INPUT_FILE.name} finished successfully.\nSee {OUTPUT_FILE}")
+            else:
+                send_email("ORCA Job Failed",
+                           f"Calculation {INPUT_FILE.name} failed (exit code {retcode}).\nCheck {OUTPUT_FILE}")
+            break
+        else:
+            counter += 1
+            if counter * CHECK_INTERVAL >= PROGRESS_INTERVAL:
+                send_progress()
+                counter = 0
+        time.sleep(CHECK_INTERVAL)
+
+if __name__ == "__main__":
+    main()

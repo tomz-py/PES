@@ -23,7 +23,7 @@ PROGRESS_INTERVAL = 3600     # send progress email every hour
 SMTP_SERVER = "smtp.gmail.com"
 SMTP_PORT = 587
 SENDER = "omoniyimodupe@gmail.com"
-PASSWORD = "vxrs ccko drho pxef"   # your 16-digit Google App Password
+PASSWORD = "vxrs ccko drho pxe##"   # your 16-digit Google App Password
 RECIPIENT = "Modupe.Omoniyi@uvm.edu"
 
 # ========== FUNCTIONS ==========
